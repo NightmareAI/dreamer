@@ -1,0 +1,7 @@
+cloudevents
+dapr
+dapr.ext.grpc
+hera-workflows
+minio
+pyyaml
+requests
