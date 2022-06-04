@@ -1,8 +1,10 @@
+from unicodedata import name
 from hera import EnvSpec, ImagePullPolicy
 from hera.artifact import InputArtifact, S3Artifact, OutputArtifact
 from hera.resources import Resources
 from hera.task import Task
 from hera.toleration import GPUToleration
+from hera.retry import Retry
 from hera.workflow import Workflow
 from hera.workflow_service import WorkflowService
 from hera.variable import VariableAsEnv
@@ -12,15 +14,20 @@ from dapr.clients import DaprClient
 from dapr.ext.grpc import App
 
 
-def pixray_upload(id: str):
+publish_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/nightmarebot-publish@sha256:031e85c6fa53eddc92d556a18e68aca8eda22c47a8fa7d2eaec004fe046f3745"
+majesty_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/majesty-dreamer@sha256:38fb21b240b60aff3420e549819338e66eb3d93ae575167c6cd2152349674cbe"
+latent_diffusion_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/latent-diffusion-dreamer@sha256:0546cc68f4f0eeea8af386aaa2b31e73b3c7dfc3f56ea8fd33c474b5b1cc6939"
+esrgan_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/esrgan-enhance@sha256:e99a97d83fd49154948d9455d1226fdc87687c9e7d2b065e2318633374043281"
+
+def result_upload(id: str):
   import json
   from minio import Minio
   import os
   import glob
+  client = Minio("dumb.dev", access_key=os.getenv('NIGHTMAREBOT_MINIO_KEY'), secret_key=os.getenv('NIGHTMAREBOT_MINIO_SECRET'))
 
   def upload_local_directory_to_minio(local_path, bucket_name, minio_path):
     assert os.path.isdir(local_path)
-    client = Minio("dumb.dev", access_key=os.getenv('NIGHTMAREBOT_MINIO_KEY'), secret_key=os.getenv('NIGHTMAREBOT_MINIO_SECRET'))
 
     for local_file in glob.glob(local_path + '/**'):
         local_file = local_file.replace(os.sep, "/") # Replace \ with / on Windows
@@ -94,7 +101,198 @@ def enhance_prepare(id: str):
   client.fget_object('nightmarebot-workflow', f'{id}/prompt.txt', '/tmp/enhance/prompt.txt')
   client.fget_object('nightmarebot-workflow', f'{id}/id.txt', '/tmp/enhance/id.txt')
 
+def majesty_prepare(id: str):
+  from minio import Minio
+  import os,sys
+  client = Minio("dumb.dev", access_key=os.getenv('NIGHTMAREBOT_MINIO_KEY'), secret_key=os.getenv('NIGHTMAREBOT_MINIO_SECRET'))
+  os.makedirs('/tmp/majesty')
+  client.fget_object('nightmarebot-workflow', f'{id}/input.json', '/tmp/majesty/input.json')
+  client.fget_object('nightmarebot-workflow', f'{id}/context.json', '/tmp/majesty/context.json')
+  client.fget_object('nightmarebot-workflow', f'{id}/prompt.txt', '/tmp/majesty/prompt.txt')
+  client.fget_object('nightmarebot-workflow', f'{id}/id.txt', '/tmp/majesty/id.txt')
+  client.fget_object('nightmarebot-workflow', f'{id}/settings.cfg', '/tmp/majesty/settings.cfg')
+
+def prepare(id: str):
+  from minio import Minio
+  import os,sys
+  client = Minio("dumb.dev", access_key=os.getenv('NIGHTMAREBOT_MINIO_KEY'), secret_key=os.getenv('NIGHTMAREBOT_MINIO_SECRET'))
+  os.makedirs('/input')
+  client.fget_object('nightmarebot-workflow', f'{id}/input.json', '/input/input.json')
+  client.fget_object('nightmarebot-workflow', f'{id}/context.json', '/input/context.json')
+  client.fget_object('nightmarebot-workflow', f'{id}/prompt.txt', '/input/prompt.txt')
+  client.fget_object('nightmarebot-workflow', f'{id}/id.txt', '/input/id.txt')
+  
 app = App()
+
+@app.subscribe(pubsub_name="jetstream-pubsub", topic='request.majesty-diffusion')
+def ldm(event: v1.Event) -> None:
+  import os
+  import json
+
+  data = json.loads(event.Data())
+  id = data["id"]
+
+  try:
+    ws = WorkflowService(host='https://argo-server.argo:2746', token='', verify_ssl=False, namespace='argo')
+    w = Workflow(f'majesty-{id}', ws, parallelism=1, namespace='argo')
+    gke_k80_gpu = {'cloud.google.com/gke-accelerator': 'nvidia-tesla-k80'}
+    gke_t4_gpu = {'cloud.google.com/gke-accelerator': 'nvidia-tesla-t4'}
+
+    command=[
+      "python3",
+      "latent.py"      
+    ]
+
+    minio_key = str(os.getenv('NIGHTMAREBOT_MINIO_KEY'))
+    minio_secret = str(os.getenv('NIGHTMAREBOT_MINIO_SECRET'))
+    bot_token = str(os.getenv('NIGHTMAREBOT_TOKEN'))
+
+    p_t = Task(
+      'majesty-prepare',
+      majesty_prepare,
+      [{'id': id}],
+      image_pull_policy=ImagePullPolicy.IfNotPresent,
+      image='us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest',
+      env_specs=[EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key), EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret)],
+      output_artifacts=[OutputArtifact(name='input', path='/tmp/majesty')],
+      retry=Retry(total=5)
+    )
+
+    d_t = Task(
+      'majesty-dreamer',
+      image=majesty_image,
+      image_pull_policy=ImagePullPolicy.IfNotPresent,
+      command=command,
+      resources=Resources(gpus=1,min_mem='16Gi',min_cpu='2'),      
+      tolerations=[GPUToleration],
+      node_selectors=gke_t4_gpu,
+      input_artifacts=[InputArtifact(name='input', path='/tmp/majesty', from_task='majesty-prepare', artifact_name='input')],
+      output_artifacts=[OutputArtifact(name='result', path='/tmp/results/')],
+      retry=Retry(total=5)
+    )
+
+    u_t = Task(
+      'majesty-upload',
+      result_upload,
+      [{'id': id}],
+      image_pull_policy=ImagePullPolicy.IfNotPresent,
+      image='us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest',
+      env_specs=[EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key), EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret), EnvSpec(name="NIGHTMAREBOT_TOKEN", value=bot_token)],
+      input_artifacts=[InputArtifact(name='result', path='/result', from_task='majesty-dreamer', artifact_name='result')],
+      retry=Retry(total=5)
+    )
+
+    r_t = Task(
+      'majesty-respond',
+      image=publish_image,
+      image_pull_policy=ImagePullPolicy.IfNotPresent,
+      command=['dotnet', 'NightmareBot.Publish.dll'],
+      env_specs=[EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key), EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret), EnvSpec(name="NIGHTMAREBOT_TOKEN", value=bot_token)],
+      input_artifacts=[
+        InputArtifact(name='input', path='/tmp/majesty', from_task='majesty-prepare', artifact_name='input'),
+        InputArtifact(name='result', path='/result/majesty', from_task='majesty-dreamer', artifact_name='result')],
+      retry=Retry(total=5)
+    )
+
+    p_t >> d_t >> u_t >> r_t
+    w.add_tasks(p_t, d_t, u_t, r_t)
+    w.create()
+  except Exception as e: print(f'Error enqueing request:{e}', flush=True)
+
+
+@app.subscribe(pubsub_name="jetstream-pubsub", topic='request.latent-diffusion')
+def latentDiffusion(event: v1.Event) -> None:
+  import os
+  import json
+
+  data = json.loads(event.Data())
+  id = data["id"]
+
+  try:
+    ws = WorkflowService(host='https://argo-server.argo:2746', token='', verify_ssl=False, namespace='argo')
+    w = Workflow(f'latent-diffusion-{id}', ws, parallelism=1, namespace='argo')
+    gke_k80_gpu = {'cloud.google.com/gke-accelerator': 'nvidia-tesla-k80'}
+    gke_t4_gpu = {'cloud.google.com/gke-accelerator': 'nvidia-tesla-t4'}
+
+    command=[
+      "python",
+      "scripts/txt2img.py",
+      "--prompt",
+      data["input"]["prompt"],
+      "--ddim_steps",
+      data["input"]["ddim_steps"],
+      "--ddim_eta",
+      data["input"]["ddim_eta"],
+      "--n_iter",
+      data["input"]["n_iter"],
+      "--n_samples",
+      data["input"]["n_samples"],
+      "--scale",
+      data["input"]["scale"],
+      "--H",
+      data["input"]["height"],
+      "--W",
+      data["input"]["width"],
+      "--outdir",
+      "/result",
+      "--grid_filename",
+      f"{id}.png"          
+    ]
+    if data["input"]["plms"]:
+      command.append("--plms")
+
+    minio_key = str(os.getenv('NIGHTMAREBOT_MINIO_KEY'))
+    minio_secret = str(os.getenv('NIGHTMAREBOT_MINIO_SECRET'))
+    bot_token = str(os.getenv('NIGHTMAREBOT_TOKEN'))
+
+
+    p_t = Task(
+      'prepare',
+      prepare,
+      [{'id': id}],
+      image_pull_policy=ImagePullPolicy.IfNotPresent,
+      image='us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest',
+      env_specs=[EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key), EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret)],
+      output_artifacts=[OutputArtifact(name='input', path='/input')]
+    )
+
+    d_t = Task(
+      "dream",
+      image=latent_diffusion_image,
+      image_pull_policy=ImagePullPolicy.IfNotPresent,
+      command=command,
+      resources=Resources(gpus=1,min_mem='16Gi',min_cpu='2'),
+      tolerations=[GPUToleration],
+      #node_selectors=gke_t4_gpu,
+      input_artifacts=[InputArtifact(name='input', path='/result', from_task='prepare', artifact_name='input')],
+      output_artifacts=[OutputArtifact(name='result', path='/result')]
+    )
+
+    u_t = Task(
+      'upload',
+      result_upload, 
+      [{'id': id}],
+      image='us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest',    
+      env_specs=[EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key), EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret), EnvSpec(name="NIGHTMAREBOT_TOKEN", value=bot_token)],
+      input_artifacts=[InputArtifact(name='result', path='/result', from_task='dream', artifact_name='result')]
+    )
+
+    r_t = Task(
+      'respond',
+      image=publish_image,
+      image_pull_policy=ImagePullPolicy.IfNotPresent,
+      command=['dotnet', 'NightmareBot.Publish.dll'],
+      env_specs=[EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key), EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret), EnvSpec(name="NIGHTMAREBOT_TOKEN", value=bot_token)],
+      input_artifacts=[InputArtifact(name='input', path='/input', from_task='prepare', artifact_name='input'),
+        InputArtifact(name='result', path='/result/latent-diffusion', from_task='dream', artifact_name='result')]
+    )
+
+    p_t >> d_t >> u_t >> r_t
+    w.add_tasks(p_t, d_t, u_t, r_t)
+    w.create()
+
+
+  except Exception as e: print(f'Error enqueing request:{e}', flush=True)
 
 @app.subscribe(pubsub_name="jetstream-pubsub", topic='request.swinir')
 def enhance(event: v1.Event) -> None:
@@ -143,9 +341,9 @@ def enhance(event: v1.Event) -> None:
       image='us-docker.pkg.dev/nightmarebot-ai/nightmarebot/swinir-enhance:latest',
       image_pull_policy=ImagePullPolicy.IfNotPresent,
       command=command,
-      resources=Resources(gpus=1),
+      resources=Resources(gpus=1,min_mem='8Gi',min_cpu='2'),
       tolerations=[GPUToleration],
-#      node_selectors=gke_t4_gpu,
+      #node_selectors=gke_k80_gpu,
       input_artifacts=[InputArtifact(name='input', path='/tmp/enhance', from_task='swinir-prepare', artifact_name='input')],
       output_artifacts=[OutputArtifact(name='result', path='/src/results/swinir_real_sr_x4_large/')]
     )
@@ -162,7 +360,7 @@ def enhance(event: v1.Event) -> None:
 
     r_t = Task(
       'swinir-respond',
-      image='us-docker.pkg.dev/nightmarebot-ai/nightmarebot/nightmarebot-publish:latest',
+      image=publish_image,
       image_pull_policy=ImagePullPolicy.IfNotPresent,
       command=['dotnet', 'NightmareBot.Publish.dll'],
       env_specs=[EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key), EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret), EnvSpec(name="NIGHTMAREBOT_TOKEN", value=bot_token)],
@@ -175,6 +373,90 @@ def enhance(event: v1.Event) -> None:
     w.create()
   except Exception as e: print(f'Error enqueing request:{e}', flush=True)
 
+
+@app.subscribe(pubsub_name="jetstream-pubsub", topic='request.esrgan')
+def esrgan(event: v1.Event) -> None:
+  import os
+  import json
+
+  data = json.loads(event.Data())
+  id = data["id"]
+
+  try:
+    ws = WorkflowService(host='https://argo-server.argo:2746', token='', verify_ssl=False, namespace='argo')
+    w = Workflow(f'enhance-{id}', ws, parallelism=1, namespace='argo')
+    gke_k80_gpu = {'cloud.google.com/gke-accelerator': 'nvidia-tesla-k80'}
+    gke_t4_gpu = {'cloud.google.com/gke-accelerator': 'nvidia-tesla-t4'}
+
+    command=[
+      'python',
+      'inference_realesrgan.py',
+      '-n',
+      'RealESRGAN_x4plus',
+      '-i',
+      '/input/lq',
+      '-o',
+      '/result'
+    ]
+
+    if data["input"]["face_enhance"]:
+      command.append('--face_enhance')
+    
+    if data["input"]["outscale"]:
+      command.append("--outscale")
+      command.append(data["input"]["outscale"])
+
+    minio_key = str(os.getenv('NIGHTMAREBOT_MINIO_KEY'))
+    minio_secret = str(os.getenv('NIGHTMAREBOT_MINIO_SECRET'))
+    bot_token = str(os.getenv('NIGHTMAREBOT_TOKEN'))
+
+    p_t = Task(
+      'prepare',
+      enhance_prepare,
+      [{'id': id}],
+      image_pull_policy=ImagePullPolicy.IfNotPresent,
+      image='us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest',
+      env_specs=[EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key), EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret)],
+      output_artifacts=[OutputArtifact(name='input', path='/tmp/enhance')]
+    )
+
+    e_t = Task(
+      'enhance',
+      image=esrgan_image,
+      image_pull_policy=ImagePullPolicy.IfNotPresent,
+      command=command,
+      resources=Resources(gpus=1,min_mem='16Gi',min_cpu='2'),
+      tolerations=[GPUToleration],
+      #node_selectors=gke_k80_gpu,
+      input_artifacts=[InputArtifact(name='input', path='/input', from_task='prepare', artifact_name='input')],
+      output_artifacts=[OutputArtifact(name='result', path='/result')]
+    )
+
+    u_t = Task(
+      'upload',
+      result_upload,
+      [{'id': id}],
+      image_pull_policy=ImagePullPolicy.IfNotPresent,
+      image='us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest',
+      env_specs=[EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key), EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret), EnvSpec(name="NIGHTMAREBOT_TOKEN", value=bot_token)],
+      input_artifacts=[InputArtifact(name='result', path='/result', from_task='enhance', artifact_name='result')]
+    )
+
+    r_t = Task(
+      'respond',
+      image=publish_image,
+      image_pull_policy=ImagePullPolicy.IfNotPresent,
+      command=['dotnet', 'NightmareBot.Publish.dll'],
+      env_specs=[EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key), EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret), EnvSpec(name="NIGHTMAREBOT_TOKEN", value=bot_token)],
+      input_artifacts=[InputArtifact(name='input', path='/input', from_task='prepare', artifact_name='input'),
+        InputArtifact(name='result', path='/result/enhance', from_task='enhance', artifact_name='result')]
+    )
+
+    p_t >> e_t >> u_t >> r_t
+    w.add_tasks(p_t, e_t, u_t, r_t)
+    w.create()
+
+  except Exception as e: print(f'Error enqueing request:{e}', flush=True)
 
 @app.subscribe(pubsub_name="jetstream-pubsub", topic='request.pixray')
 def dream(event: v1.Event) -> None:
@@ -213,9 +495,9 @@ def dream(event: v1.Event) -> None:
       image='us-docker.pkg.dev/nightmarebot-ai/nightmarebot/pixray-dreamer:latest', 
       image_pull_policy=ImagePullPolicy.IfNotPresent,
       command=command,
-      resources=Resources(gpus=1),
+      resources=Resources(gpus=1,min_mem='16Gi',min_cpu='2'),
       tolerations=[GPUToleration],
-      #node_selectors=gke_t4_gpu,
+      node_selectors=gke_t4_gpu,
       env_specs=[EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key), EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret)],
       input_artifacts=[InputArtifact(name='input', path='/tmp/pixray', from_task='pixray-prepare', artifact_name='input')],
       output_artifacts=[OutputArtifact(name='result', path='/tmp/pixray')]
@@ -223,7 +505,7 @@ def dream(event: v1.Event) -> None:
 
     u_t = Task(
       'pixray-upload',
-      pixray_upload, 
+      result_upload, 
       [{'id': id}],
       image='us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest',    
       env_specs=[EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key), EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret), EnvSpec(name="NIGHTMAREBOT_TOKEN", value=bot_token)],
@@ -233,7 +515,7 @@ def dream(event: v1.Event) -> None:
     r_t = Task(
       'pixray-respond',
       image_pull_policy=ImagePullPolicy.IfNotPresent,
-      image='us-docker.pkg.dev/nightmarebot-ai/nightmarebot/nightmarebot-publish:latest',
+      image=publish_image,
       command=['dotnet', 'NightmareBot.Publish.dll'],
       env_specs=[EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key), EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret), EnvSpec(name="NIGHTMAREBOT_TOKEN", value=bot_token)],
       input_artifacts=[InputArtifact(name='result', path='/result/pixray', from_task='pixray-dreamer', artifact_name='result')]
