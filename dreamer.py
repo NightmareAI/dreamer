@@ -8,14 +8,16 @@ from hera.retry import Retry
 from hera.workflow import Workflow
 from hera.workflow_service import WorkflowService
 from hera.variable import VariableAsEnv
+from hera.volumes import ExistingVolume
+from argo_workflows.models import PersistentVolumeClaimSpec, PersistentVolumeClaim, ObjectMeta
 
 from cloudevents.sdk.event import v1
 from dapr.clients import DaprClient
 from dapr.ext.grpc import App
 
 
-publish_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/nightmarebot-publish@sha256:031e85c6fa53eddc92d556a18e68aca8eda22c47a8fa7d2eaec004fe046f3745"
-majesty_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/majesty-dreamer@sha256:38fb21b240b60aff3420e549819338e66eb3d93ae575167c6cd2152349674cbe"
+publish_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/nightmarebot-publish@sha256:90b7b44b00ff5d4955d02e7b217b5a503948010d35a89616911870e856382aeb"
+majesty_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/majesty-dreamer@sha256:841a05ce50882a3de7a9e8d18447f815a36049a3628108ec61232c6a45d2d26f"
 latent_diffusion_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/latent-diffusion-dreamer@sha256:0546cc68f4f0eeea8af386aaa2b31e73b3c7dfc3f56ea8fd33c474b5b1cc6939"
 esrgan_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/esrgan-enhance@sha256:e99a97d83fd49154948d9455d1226fdc87687c9e7d2b065e2318633374043281"
 
@@ -137,12 +139,14 @@ def ldm(event: v1.Event) -> None:
     w = Workflow(f'majesty-{id}', ws, parallelism=1, namespace='argo')
     gke_k80_gpu = {'cloud.google.com/gke-accelerator': 'nvidia-tesla-k80'}
     gke_t4_gpu = {'cloud.google.com/gke-accelerator': 'nvidia-tesla-t4'}
-
+#    claim_spec = PersistentVolumeClaimSpec(access_modes="ReadWriteMany",claim_name="majesty-models")
+#    claim_meta = ObjectMeta(name="majesty-model")
+#    setattr(w.spec, 'volume_claim_templates', [PersistentVolumeClaim(spec=claim_spec,metadata=claim_meta)])
     command=[
       "python3",
       "latent.py"      
     ]
-
+    
     minio_key = str(os.getenv('NIGHTMAREBOT_MINIO_KEY'))
     minio_secret = str(os.getenv('NIGHTMAREBOT_MINIO_SECRET'))
     bot_token = str(os.getenv('NIGHTMAREBOT_TOKEN'))
@@ -163,9 +167,9 @@ def ldm(event: v1.Event) -> None:
       image=majesty_image,
       image_pull_policy=ImagePullPolicy.IfNotPresent,
       command=command,
-      resources=Resources(gpus=1,min_mem='16Gi',min_cpu='2'),      
+      resources=Resources(gpus=1,min_mem='16Gi',min_cpu='2',volumes=[ExistingVolume(name="majesty-models", mount_path="/models")]), 
       tolerations=[GPUToleration],
-      node_selectors=gke_t4_gpu,
+      node_selectors=gke_t4_gpu,      
       input_artifacts=[InputArtifact(name='input', path='/tmp/majesty', from_task='majesty-prepare', artifact_name='input')],
       output_artifacts=[OutputArtifact(name='result', path='/tmp/results/')],
       retry=Retry(total=5)
