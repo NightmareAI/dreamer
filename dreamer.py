@@ -16,7 +16,7 @@ from dapr.ext.grpc import App
 
 
 publish_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/nightmarebot-publish@sha256:90b7b44b00ff5d4955d02e7b217b5a503948010d35a89616911870e856382aeb"
-majesty_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/majesty-dreamer@sha256:dd2a925a27e91b294c8a5f6cfc285b5dd8d296259f9852a153c9f3819714766c"
+majesty_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/majesty-diffusion@sha256:dd2a925a27e91b294c8a5f6cfc285b5dd8d296259f9852a153c9f3819714766c"
 latent_diffusion_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/latent-diffusion-dreamer@sha256:0546cc68f4f0eeea8af386aaa2b31e73b3c7dfc3f56ea8fd33c474b5b1cc6939"
 esrgan_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/esrgan-enhance@sha256:e99a97d83fd49154948d9455d1226fdc87687c9e7d2b065e2318633374043281"
 
