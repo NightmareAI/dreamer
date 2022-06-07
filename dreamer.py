@@ -222,6 +222,7 @@ def ldm(event: v1.Event) -> None:
             "/tmp/majesty/settings.cfg",
             "-o",
             "/tmp/results",
+            "--enable_aesthetic_embeddings",
         ]
 
         minio_key = str(os.getenv("NIGHTMAREBOT_MINIO_KEY"))
