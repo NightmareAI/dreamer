@@ -9,16 +9,23 @@ from hera.workflow import Workflow
 from hera.workflow_service import WorkflowService
 from hera.variable import VariableAsEnv
 from hera.volumes import ExistingVolume
+import os
 
 from cloudevents.sdk.event import v1
 from dapr.clients import DaprClient
 from dapr.ext.grpc import App
 
 
-publish_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/nightmarebot-publish@sha256:90b7b44b00ff5d4955d02e7b217b5a503948010d35a89616911870e856382aeb"
+publish_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/nightmarebot-publish@sha256:7a02725ca683f367c31ebaafff227c2722055c2f437ca8c0008a93e2b0d8ae9a"
 majesty_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/majesty-diffusion@sha256:fdeabdd93fc739cfb2dc3617493b9c9002ef6c5d643888949caceeaec76bcd3a"
 latent_diffusion_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/latent-diffusion-dreamer@sha256:0546cc68f4f0eeea8af386aaa2b31e73b3c7dfc3f56ea8fd33c474b5b1cc6939"
 esrgan_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/esrgan-enhance@sha256:e99a97d83fd49154948d9455d1226fdc87687c9e7d2b065e2318633374043281"
+
+
+minio_key = str(os.getenv("NIGHTMAREBOT_MINIO_KEY"))
+minio_secret = str(os.getenv("NIGHTMAREBOT_MINIO_SECRET"))
+bot_token = str(os.getenv("NIGHTMAREBOT_TOKEN"))
+openai_key = str(os.getenv("OPENAI_SECRET_KEY"))
 
 
 def result_upload(id: str):
@@ -152,8 +159,9 @@ def enhance_prepare(id: str):
 
 def majesty_prepare(id: str):
     from minio import Minio
-    import os, sys
+    import os, subprocess
 
+    subprocess.call(["cp", "-r", "-n", "/gcs/models/*", "/src/models/"])
     client = Minio(
         "dumb.dev",
         access_key=os.getenv("NIGHTMAREBOT_MINIO_KEY"),
@@ -225,10 +233,7 @@ def ldm(event: v1.Event) -> None:
             "--enable_aesthetic_embeddings",
         ]
 
-        minio_key = str(os.getenv("NIGHTMAREBOT_MINIO_KEY"))
-        minio_secret = str(os.getenv("NIGHTMAREBOT_MINIO_SECRET"))
-        bot_token = str(os.getenv("NIGHTMAREBOT_TOKEN"))
-
+        # The prepare task uses a GPU as this generally ensures it will run first on new nodes, so it can copy models
         p_t = Task(
             "majesty-prepare",
             majesty_prepare,
@@ -239,8 +244,19 @@ def ldm(event: v1.Event) -> None:
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
             ],
+            tolerations=[GPUToleration],
+            node_selectors=gke_t4_gpu,
+            resources=Resources(
+                gpus=1,
+                volumes=[
+                    ExistingVolume(name="majesty-models-gcs", mount_path="/gcs/models"),
+                    ExistingVolume(
+                        name="majesty-models-local", mount_path="/src/models"
+                    ),
+                ],
+            ),
             output_artifacts=[OutputArtifact(name="input", path="/tmp/majesty")],
-            retry=Retry(total=5),
+            retry=Retry(limit=3),
         )
 
         d_t = Task(
@@ -253,7 +269,9 @@ def ldm(event: v1.Event) -> None:
                 min_mem="16Gi",
                 min_cpu="2",
                 volumes=[
-                    ExistingVolume(name="majesty-models-gcs", mount_path="/src/models"),
+                    ExistingVolume(
+                        name="majesty-models-local", mount_path="/src/models"
+                    ),
                     ExistingVolume(
                         name="majesty-cache-local", mount_path="/root/.cache"
                     ),
@@ -270,7 +288,7 @@ def ldm(event: v1.Event) -> None:
                 )
             ],
             output_artifacts=[OutputArtifact(name="result", path="/tmp/results/")],
-            retry=Retry(total=5),
+            retry=Retry(limit=3),
         )
 
         u_t = Task(
@@ -292,7 +310,7 @@ def ldm(event: v1.Event) -> None:
                     artifact_name="result",
                 )
             ],
-            retry=Retry(total=5),
+            retry=Retry(limit=3),
         )
 
         r_t = Task(
@@ -304,6 +322,7 @@ def ldm(event: v1.Event) -> None:
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
                 EnvSpec(name="NIGHTMAREBOT_TOKEN", value=bot_token),
+                EnvSpec(name="OPENAI_SECRET_KEY", value=openai_key),
             ],
             input_artifacts=[
                 InputArtifact(
@@ -319,7 +338,7 @@ def ldm(event: v1.Event) -> None:
                     artifact_name="result",
                 ),
             ],
-            retry=Retry(total=5),
+            retry=Retry(limit=3),
         )
 
         p_t >> d_t >> u_t >> r_t
@@ -374,10 +393,6 @@ def latentDiffusion(event: v1.Event) -> None:
         ]
         if data["input"]["plms"]:
             command.append("--plms")
-
-        minio_key = str(os.getenv("NIGHTMAREBOT_MINIO_KEY"))
-        minio_secret = str(os.getenv("NIGHTMAREBOT_MINIO_SECRET"))
-        bot_token = str(os.getenv("NIGHTMAREBOT_TOKEN"))
 
         p_t = Task(
             "prepare",
@@ -440,6 +455,7 @@ def latentDiffusion(event: v1.Event) -> None:
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
                 EnvSpec(name="NIGHTMAREBOT_TOKEN", value=bot_token),
+                EnvSpec(name="OPENAI_SECRET_KEY", value=openai_key),
             ],
             input_artifacts=[
                 InputArtifact(
@@ -497,10 +513,6 @@ def enhance(event: v1.Event) -> None:
             "--folder_lq",
             "/tmp/enhance/lq",
         ]
-
-        minio_key = str(os.getenv("NIGHTMAREBOT_MINIO_KEY"))
-        minio_secret = str(os.getenv("NIGHTMAREBOT_MINIO_SECRET"))
-        bot_token = str(os.getenv("NIGHTMAREBOT_TOKEN"))
 
         p_t = Task(
             "swinir-prepare",
@@ -568,6 +580,7 @@ def enhance(event: v1.Event) -> None:
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
                 EnvSpec(name="NIGHTMAREBOT_TOKEN", value=bot_token),
+                EnvSpec(name="OPENAI_SECRET_KEY", value=openai_key),
             ],
             input_artifacts=[
                 InputArtifact(
@@ -628,10 +641,6 @@ def esrgan(event: v1.Event) -> None:
         if data["input"]["outscale"]:
             command.append("--outscale")
             command.append(data["input"]["outscale"])
-
-        minio_key = str(os.getenv("NIGHTMAREBOT_MINIO_KEY"))
-        minio_secret = str(os.getenv("NIGHTMAREBOT_MINIO_SECRET"))
-        bot_token = str(os.getenv("NIGHTMAREBOT_TOKEN"))
 
         p_t = Task(
             "prepare",
@@ -695,6 +704,7 @@ def esrgan(event: v1.Event) -> None:
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
                 EnvSpec(name="NIGHTMAREBOT_TOKEN", value=bot_token),
+                EnvSpec(name="OPENAI_SECRET_KEY", value=openai_key),
             ],
             input_artifacts=[
                 InputArtifact(
@@ -739,10 +749,6 @@ def dream(event: v1.Event) -> None:
         gke_t4_gpu = {"cloud.google.com/gke-accelerator": "nvidia-tesla-t4"}
 
         command = ["python", "draw.py", "/tmp/pixray"]
-
-        minio_key = str(os.getenv("NIGHTMAREBOT_MINIO_KEY"))
-        minio_secret = str(os.getenv("NIGHTMAREBOT_MINIO_SECRET"))
-        bot_token = str(os.getenv("NIGHTMAREBOT_TOKEN"))
 
         p_t = Task(
             "pixray-prepare",
@@ -808,6 +814,7 @@ def dream(event: v1.Event) -> None:
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
                 EnvSpec(name="NIGHTMAREBOT_TOKEN", value=bot_token),
+                EnvSpec(name="OPENAI_SECRET_KEY", value=openai_key),
             ],
             input_artifacts=[
                 InputArtifact(
