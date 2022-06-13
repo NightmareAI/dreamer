@@ -763,7 +763,7 @@ def dream(event: v1.Event) -> None:
 
         d_t = Task(
             "pixray-dreamer",
-            image="us-docker.pkg.dev/nightmarebot-ai/nightmarebot/pixray-dreamer:latest",
+            image=pixray_image,
             image_pull_policy=ImagePullPolicy.IfNotPresent,
             command=command,
             resources=Resources(gpus=1, min_mem="16Gi", min_cpu="2"),
