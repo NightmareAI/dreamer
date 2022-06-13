@@ -242,6 +242,7 @@ def ldm(event: v1.Event) -> None:
             majesty_prepare,
             [{"id": id}],
             image_pull_policy=ImagePullPolicy.IfNotPresent,
+            annotations={"multicluster.admiralty.io/elect": ""},
             image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
@@ -289,6 +290,7 @@ def ldm(event: v1.Event) -> None:
             result_upload,
             [{"id": id}],
             image_pull_policy=ImagePullPolicy.IfNotPresent,
+            annotations={"multicluster.admiralty.io/elect": ""},
             image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
@@ -310,6 +312,7 @@ def ldm(event: v1.Event) -> None:
             "majesty-respond",
             image=publish_image,
             image_pull_policy=ImagePullPolicy.IfNotPresent,
+            annotations={"multicluster.admiralty.io/elect": ""},
             command=["dotnet", "NightmareBot.Publish.dll"],
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
@@ -392,6 +395,7 @@ def latentDiffusion(event: v1.Event) -> None:
             prepare,
             [{"id": id}],
             image_pull_policy=ImagePullPolicy.IfNotPresent,
+            annotations={"multicluster.admiralty.io/elect": ""},
             image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
@@ -426,6 +430,7 @@ def latentDiffusion(event: v1.Event) -> None:
             result_upload,
             [{"id": id}],
             image=dreamer_image,
+            annotations={"multicluster.admiralty.io/elect": ""},
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
@@ -446,6 +451,7 @@ def latentDiffusion(event: v1.Event) -> None:
             image=publish_image,
             image_pull_policy=ImagePullPolicy.IfNotPresent,
             command=["dotnet", "NightmareBot.Publish.dll"],
+            annotations={"multicluster.admiralty.io/elect": ""},
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
@@ -514,6 +520,7 @@ def enhance(event: v1.Event) -> None:
             enhance_prepare,
             [{"id": id}],
             image_pull_policy=ImagePullPolicy.IfNotPresent,
+            annotations={"multicluster.admiralty.io/elect": ""},
             image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
@@ -552,6 +559,7 @@ def enhance(event: v1.Event) -> None:
             upload_swinir,
             [{"id": id}],
             image_pull_policy=ImagePullPolicy.IfNotPresent,
+            annotations={"multicluster.admiralty.io/elect": ""},
             image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
@@ -573,6 +581,7 @@ def enhance(event: v1.Event) -> None:
             image=publish_image,
             image_pull_policy=ImagePullPolicy.IfNotPresent,
             command=["dotnet", "NightmareBot.Publish.dll"],
+            annotations={"multicluster.admiralty.io/elect": ""},
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
@@ -644,6 +653,7 @@ def esrgan(event: v1.Event) -> None:
             enhance_prepare,
             [{"id": id}],
             image_pull_policy=ImagePullPolicy.IfNotPresent,
+            annotations={"multicluster.admiralty.io/elect": ""},
             image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
@@ -678,6 +688,7 @@ def esrgan(event: v1.Event) -> None:
             result_upload,
             [{"id": id}],
             image_pull_policy=ImagePullPolicy.IfNotPresent,
+            annotations={"multicluster.admiralty.io/elect": ""},
             image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
@@ -699,6 +710,7 @@ def esrgan(event: v1.Event) -> None:
             image=publish_image,
             image_pull_policy=ImagePullPolicy.IfNotPresent,
             command=["dotnet", "NightmareBot.Publish.dll"],
+            annotations={"multicluster.admiralty.io/elect": ""},
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
@@ -754,6 +766,7 @@ def dream(event: v1.Event) -> None:
             pixray_prepare,
             [{"id": id}],
             image=dreamer_image,
+            annotations={"multicluster.admiralty.io/elect": ""},
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
@@ -790,6 +803,7 @@ def dream(event: v1.Event) -> None:
             result_upload,
             [{"id": id}],
             image=dreamer_image,
+            annotations={"multicluster.admiralty.io/elect": ""},
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
@@ -810,6 +824,7 @@ def dream(event: v1.Event) -> None:
             image_pull_policy=ImagePullPolicy.IfNotPresent,
             image=publish_image,
             command=["dotnet", "NightmareBot.Publish.dll"],
+            annotations={"multicluster.admiralty.io/elect": ""},
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
