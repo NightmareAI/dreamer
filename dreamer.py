@@ -16,10 +16,13 @@ from dapr.clients import DaprClient
 from dapr.ext.grpc import App
 
 
-publish_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/nightmarebot-publish@sha256:7a02725ca683f367c31ebaafff227c2722055c2f437ca8c0008a93e2b0d8ae9a"
-majesty_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/majesty-diffusion@sha256:fdeabdd93fc739cfb2dc3617493b9c9002ef6c5d643888949caceeaec76bcd3a"
-latent_diffusion_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/latent-diffusion-dreamer@sha256:0546cc68f4f0eeea8af386aaa2b31e73b3c7dfc3f56ea8fd33c474b5b1cc6939"
-esrgan_image = "us-central1-docker.pkg.dev/nightmarebot-ai/nightmarebot/esrgan-enhance@sha256:e99a97d83fd49154948d9455d1226fdc87687c9e7d2b065e2318633374043281"
+publish_image = "ghcr.io/nightmareai/nightmarebot-publish@sha256:7a365e631866a21b22361661f7f373cafa3b7d78f92b28f88c86c1651250160c"
+majesty_image = "ghcr.io/nightmareai/majesty-diffusion@sha256:fb81446fcc13fa1a048c3d683e38113cae114aa5216218a639c03946b1f88dcb"
+pixray_image = "ghcr.io/nightmareai/pixray@sha256:4789d76512bbe483ef0c50023366f684e8f8775f59bf133f687761d3913e09e0"
+latent_diffusion_image = "ghcr.io/nightmareai/latent-diffusion@sha256:fc529d49066fc2d2764c42a66dd9e68a698cd9f67c76e262740edbfa9f8ca914"
+esrgan_image = "ghcr.io/nightmareai/real-esrgan@sha256:306b465203ad35a02526b249b0e42da22f38831a41570661a9d18a0334c8d26f"
+swinir_image = "ghcr.io/nightmareai/swinir@sha256:11aec61fa66b568630cdde5bf32539c5bf0e44425a7b135361bd77eeb697742e"
+dreamer_image = "ghcr.io/nightmareai/dreamer:latest"
 
 
 minio_key = str(os.getenv("NIGHTMAREBOT_MINIO_KEY"))
@@ -159,9 +162,8 @@ def enhance_prepare(id: str):
 
 def majesty_prepare(id: str):
     from minio import Minio
-    import os, subprocess
+    import os
 
-    subprocess.call(["cp", "-r", "-n", "/gcs/models/*", "/src/models/"])
     client = Minio(
         "dumb.dev",
         access_key=os.getenv("NIGHTMAREBOT_MINIO_KEY"),
@@ -231,30 +233,20 @@ def ldm(event: v1.Event) -> None:
             "-o",
             "/tmp/results",
             "--enable_aesthetic_embeddings",
+            "--model_source",
+            "https://storage.googleapis.com/majesty-diffusion-models",
         ]
 
-        # The prepare task uses a GPU as this generally ensures it will run first on new nodes, so it can copy models
         p_t = Task(
             "majesty-prepare",
             majesty_prepare,
             [{"id": id}],
             image_pull_policy=ImagePullPolicy.IfNotPresent,
-            image="us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest",
+            image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
             ],
-            tolerations=[GPUToleration],
-            node_selectors=gke_t4_gpu,
-            resources=Resources(
-                gpus=1,
-                volumes=[
-                    ExistingVolume(name="majesty-models-gcs", mount_path="/gcs/models"),
-                    ExistingVolume(
-                        name="majesty-models-local", mount_path="/src/models"
-                    ),
-                ],
-            ),
             output_artifacts=[OutputArtifact(name="input", path="/tmp/majesty")],
             retry=Retry(limit=3),
         )
@@ -264,6 +256,7 @@ def ldm(event: v1.Event) -> None:
             image=majesty_image,
             image_pull_policy=ImagePullPolicy.IfNotPresent,
             command=command,
+            annotations={"multicluster.admiralty.io/elect": ""},
             resources=Resources(
                 gpus=1,
                 min_mem="16Gi",
@@ -278,7 +271,7 @@ def ldm(event: v1.Event) -> None:
                 ],
             ),
             tolerations=[GPUToleration],
-            node_selectors=gke_t4_gpu,
+            node_selectors={"dreamer.nightmarebot.com/majesty": "true"},
             input_artifacts=[
                 InputArtifact(
                     name="input",
@@ -296,7 +289,7 @@ def ldm(event: v1.Event) -> None:
             result_upload,
             [{"id": id}],
             image_pull_policy=ImagePullPolicy.IfNotPresent,
-            image="us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest",
+            image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
@@ -399,7 +392,7 @@ def latentDiffusion(event: v1.Event) -> None:
             prepare,
             [{"id": id}],
             image_pull_policy=ImagePullPolicy.IfNotPresent,
-            image="us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest",
+            image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
@@ -412,8 +405,10 @@ def latentDiffusion(event: v1.Event) -> None:
             image=latent_diffusion_image,
             image_pull_policy=ImagePullPolicy.IfNotPresent,
             command=command,
+            annotations={"multicluster.admiralty.io/elect": ""},
             resources=Resources(gpus=1, min_mem="16Gi", min_cpu="2"),
             tolerations=[GPUToleration],
+            node_selectors={"dreamer.nightmarebot.com/latent": "true"},
             # node_selectors=gke_t4_gpu,
             input_artifacts=[
                 InputArtifact(
@@ -430,7 +425,7 @@ def latentDiffusion(event: v1.Event) -> None:
             "upload",
             result_upload,
             [{"id": id}],
-            image="us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest",
+            image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
@@ -519,7 +514,7 @@ def enhance(event: v1.Event) -> None:
             enhance_prepare,
             [{"id": id}],
             image_pull_policy=ImagePullPolicy.IfNotPresent,
-            image="us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest",
+            image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
@@ -529,11 +524,13 @@ def enhance(event: v1.Event) -> None:
 
         e_t = Task(
             "swinir-enhance",
-            image="us-docker.pkg.dev/nightmarebot-ai/nightmarebot/swinir-enhance:latest",
+            image=swinir_image,
             image_pull_policy=ImagePullPolicy.IfNotPresent,
             command=command,
+            annotations={"multicluster.admiralty.io/elect": ""},
             resources=Resources(gpus=1, min_mem="8Gi", min_cpu="2"),
             tolerations=[GPUToleration],
+            node_selectors={"enhance.nightmarebot.com/swinir": "true"},
             # node_selectors=gke_k80_gpu,
             input_artifacts=[
                 InputArtifact(
@@ -555,7 +552,7 @@ def enhance(event: v1.Event) -> None:
             upload_swinir,
             [{"id": id}],
             image_pull_policy=ImagePullPolicy.IfNotPresent,
-            image="us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest",
+            image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
@@ -647,7 +644,7 @@ def esrgan(event: v1.Event) -> None:
             enhance_prepare,
             [{"id": id}],
             image_pull_policy=ImagePullPolicy.IfNotPresent,
-            image="us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest",
+            image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
@@ -661,7 +658,9 @@ def esrgan(event: v1.Event) -> None:
             image_pull_policy=ImagePullPolicy.IfNotPresent,
             command=command,
             resources=Resources(gpus=1, min_mem="16Gi", min_cpu="2"),
+            annotations={"multicluster.admiralty.io/elect": ""},
             tolerations=[GPUToleration],
+            node_selectors={"enhance.nightmarebot.com/esrgan": "true"},
             # node_selectors=gke_k80_gpu,
             input_artifacts=[
                 InputArtifact(
@@ -679,7 +678,7 @@ def esrgan(event: v1.Event) -> None:
             result_upload,
             [{"id": id}],
             image_pull_policy=ImagePullPolicy.IfNotPresent,
-            image="us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest",
+            image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
@@ -754,7 +753,7 @@ def dream(event: v1.Event) -> None:
             "pixray-prepare",
             pixray_prepare,
             [{"id": id}],
-            image="us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest",
+            image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
@@ -769,7 +768,8 @@ def dream(event: v1.Event) -> None:
             command=command,
             resources=Resources(gpus=1, min_mem="16Gi", min_cpu="2"),
             tolerations=[GPUToleration],
-            node_selectors=gke_t4_gpu,
+            annotations={"multicluster.admiralty.io/elect": ""},
+            node_selectors={"dreamer.nightmarebot.com/pixray": "true"},
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
@@ -789,7 +789,7 @@ def dream(event: v1.Event) -> None:
             "pixray-upload",
             result_upload,
             [{"id": id}],
-            image="us-docker.pkg.dev/nightmarebot-ai/nightmarebot/hera-dreamer:latest",
+            image=dreamer_image,
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
