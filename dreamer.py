@@ -647,17 +647,17 @@ def enhance(event: v1.Event) -> None:
                     from_task="swinir-prepare",
                     artifact_name="input",
                 ),
-#                InputArtifact(
-#                    name="result",
-#                    path="/result/swinir/output",
-#                    from_task="swinir-enhance",
-#                    artifact_name="result",
-#                ),
+                #                InputArtifact(
+                #                    name="result",
+                #                    path="/result/swinir/output",
+                #                    from_task="swinir-enhance",
+                #                    artifact_name="result",
+                #                ),
             ],
         )
 
         p_t >> replicate_task >> r_t
-        w.add_tasks(p_t, replicate_task r_t)
+        w.add_tasks(p_t, replicate_task, r_t)
         w.create()
     except Exception as e:
         print(f"Error enqueing request:{e}", flush=True)
