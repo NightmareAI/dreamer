@@ -625,6 +625,7 @@ def enhance(event: v1.Event) -> None:
                     from_task="swinir-prepare",
                     artifact_name="input",
                 )
+            ],
         )
 
         r_t = Task(
