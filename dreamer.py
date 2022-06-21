@@ -860,6 +860,7 @@ def dream(event: v1.Event) -> None:
         d_t = Task(
             "pixray-replicate",
             pixray_replicate,
+            [{"id": id}],
             image=dreamer_image,
             image_pull_policy=ImagePullPolicy.IfNotPresent,
             # resources=Resources(gpus=1, min_mem="16Gi", min_cpu="2"),
