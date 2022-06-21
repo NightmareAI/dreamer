@@ -22,7 +22,7 @@ pixray_image = "ghcr.io/nightmareai/pixray@sha256:4789d76512bbe483ef0c50023366f6
 latent_diffusion_image = "ghcr.io/nightmareai/latent-diffusion@sha256:fc529d49066fc2d2764c42a66dd9e68a698cd9f67c76e262740edbfa9f8ca914"
 esrgan_image = "ghcr.io/nightmareai/real-esrgan@sha256:306b465203ad35a02526b249b0e42da22f38831a41570661a9d18a0334c8d26f"
 swinir_image = "ghcr.io/nightmareai/swinir@sha256:11aec61fa66b568630cdde5bf32539c5bf0e44425a7b135361bd77eeb697742e"
-dreamer_image = "ghcr.io/nightmareai/dreamer:main"
+dreamer_image = "ghcr.io/nightmareai/dreamer:dev"
 
 
 minio_key = str(os.getenv("NIGHTMAREBOT_MINIO_KEY"))
