@@ -149,7 +149,8 @@ def pixray_replicate(id: str):
 
     model = replicate.models.get("pixray/api")
     i = 0
-    for result in model.predict(settings=open("/tmp/pixray/input.yaml", "rb")):
+
+    for result in model.predict(settings=open("/tmp/pixray/input.yaml", "r").read()):
         last_result = result
         with requests.get(last_result, stream=True) as r:
             outfile = f"{steps_dir}/{i}.png"
