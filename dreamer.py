@@ -151,16 +151,11 @@ def swinir_replicate(id: str):
     )
 
     model = replicate.models.get("jingyunliang/swinir")
-    data = client.get_object("nightmarebot-workflow", f"{id}/input.png")
-    results = model.predict(image=data)
+    filename = f"/tmp/{id}.png"
+    client.fget_object("nightmarebot-workflow", f"{id}/input.png", filename)
+    results = model.predict(image=open(filename, "rb"))
     for result in results:
         url = result["file"]
-        client.fput_object(
-            "nightmarebot-output",
-            f"{id}/output.png",
-            "/result/input_SwinIR.png",
-            content_type="image/png",
-        )
         with requests.get(url, stream=True) as r:
             client.put_object(
                 "nightmarebot-output", f"{id}/output.png", r, content_type="image/png"
