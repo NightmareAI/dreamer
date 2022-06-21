@@ -143,7 +143,7 @@ def pixray_replicate(id: str):
     import os, sys
     import replicate, requests
 
-    steps_dir = f("/tmp/pixray/steps")
+    steps_dir = "/tmp/pixray/steps"
     if not os.path.exists(steps_dir):
         os.makedirs(steps_dir)
 
@@ -168,7 +168,7 @@ def pixray_replicate(id: str):
 
 def swinir_replicate(id: str):
     from minio import Minio
-    import os, sys
+    import os
     import replicate, requests
 
     client = Minio(
