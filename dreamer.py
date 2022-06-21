@@ -920,7 +920,7 @@ def dream(event: v1.Event) -> None:
                 InputArtifact(
                     name="result",
                     path="/result/pixray",
-                    from_task="pixray-dreamer",
+                    from_task="pixray-replicate",
                     artifact_name="result",
                 )
             ],
