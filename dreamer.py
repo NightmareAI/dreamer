@@ -29,6 +29,7 @@ minio_key = str(os.getenv("NIGHTMAREBOT_MINIO_KEY"))
 minio_secret = str(os.getenv("NIGHTMAREBOT_MINIO_SECRET"))
 bot_token = str(os.getenv("NIGHTMAREBOT_TOKEN"))
 openai_key = str(os.getenv("OPENAI_SECRET_KEY"))
+replicate_token = str(os.getenv("REPLICATE_API_TOKEN"))
 
 
 def result_upload(id: str):
@@ -136,6 +137,35 @@ def pixray_prepare(id: str):
 
     with open(configfile, "w") as outstream:
         yaml.safe_dump(request_settings, outstream)
+
+
+def swinir_replicate(id: str):
+    from minio import Minio
+    import os, sys
+    import replicate, requests
+
+    client = Minio(
+        "dumb.dev",
+        access_key=os.getenv("NIGHTMAREBOT_MINIO_KEY"),
+        secret_key=os.getenv("NIGHTMAREBOT_MINIO_SECRET"),
+    )
+
+    model = replicate.models.get("jingyunliang/swinir")
+    data = client.get_object("nightmarebot-workflow", f"{id}/input.png")
+    results = model.predict(image=data)
+    for result in results:
+        url = result["file"]
+        client.fput_object(
+            "nightmarebot-output",
+            f"{id}/output.png",
+            "/result/input_SwinIR.png",
+            content_type="image/png",
+        )
+        with requests.get(url, stream=True) as r:
+            client.put_object(
+                "nightmarebot-output", f"{id}/output.png", r, content_type="image/png"
+            )
+        break
 
 
 def enhance_prepare(id: str):
@@ -531,7 +561,7 @@ def enhance(event: v1.Event) -> None:
 
         e_t = Task(
             "swinir-enhance",
-            image=swinir_image,
+            image=dreamer_image,
             image_pull_policy=ImagePullPolicy.IfNotPresent,
             command=command,
             annotations={"multicluster.admiralty.io/elect": ""},
@@ -576,6 +606,27 @@ def enhance(event: v1.Event) -> None:
             ],
         )
 
+        replicate_task = Task(
+            "swinir-replicate",
+            swinir_replicate,
+            [{"id": id}],
+            image_pull_policy=ImagePullPolicy.IfNotPresent,
+            image=dreamer_image,
+            env_specs=[
+                EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
+                EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
+                EnvSpec(name="NIGHTMAREBOT_TOKEN", value=bot_token),
+                EnvSpec(name="REPLICATE_API_TOKEN", value=replicate_token),
+            ],
+            input_artifacts=[
+                InputArtifact(
+                    name="input",
+                    path="/result/swinir",
+                    from_task="swinir-prepare",
+                    artifact_name="input",
+                )
+        )
+
         r_t = Task(
             "swinir-respond",
             image=publish_image,
@@ -595,17 +646,17 @@ def enhance(event: v1.Event) -> None:
                     from_task="swinir-prepare",
                     artifact_name="input",
                 ),
-                InputArtifact(
-                    name="result",
-                    path="/result/swinir/output",
-                    from_task="swinir-enhance",
-                    artifact_name="result",
-                ),
+#                InputArtifact(
+#                    name="result",
+#                    path="/result/swinir/output",
+#                    from_task="swinir-enhance",
+#                    artifact_name="result",
+#                ),
             ],
         )
 
-        p_t >> e_t >> u_t >> r_t
-        w.add_tasks(p_t, e_t, u_t, r_t)
+        p_t >> replicate_task >> r_t
+        w.add_tasks(p_t, replicate_task r_t)
         w.create()
     except Exception as e:
         print(f"Error enqueing request:{e}", flush=True)
