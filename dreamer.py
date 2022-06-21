@@ -121,22 +121,49 @@ def pixray_prepare(id: str):
         except yaml.YAMLError as exc:
             print("Problem with settings", exc)
             sys.exit(1)
-    try:
-        if (
-            request_settings["init_image"]
-            and not str(request_settings["init_image"]).isspace()
-        ):
-            outfile = os.path.join("/tmp/pixray", "init_image.png")
-            with requests.get(request_settings["init_image"], stream=True) as r:
-                with open(outfile, "wb") as f:
-                    for chunk in r.iter_content(chunk_size=16 * 1024):
-                        f.write(chunk)
-            request_settings["init_image"] = outfile
-    except Exception as e:
-        print(f"Error saving init_image:{e}", flush=True)
+        try:
+            if (
+                request_settings["init_image"]
+                and not str(request_settings["init_image"]).isspace()
+            ):
+                outfile = os.path.join("/tmp/pixray", "init_image.png")
+                with requests.get(request_settings["init_image"], stream=True) as r:
+                    with open(outfile, "wb") as f:
+                        for chunk in r.iter_content(chunk_size=16 * 1024):
+                            f.write(chunk)
+                request_settings["init_image"] = outfile
+        except Exception as e:
+            print(f"Error saving init_image:{e}", flush=True)
 
     with open(configfile, "w") as outstream:
         yaml.safe_dump(request_settings, outstream)
+
+
+def pixray_replicate(id: str):
+    import os, sys
+    import replicate, requests
+
+    steps_dir = f("/tmp/pixray/steps")
+    if not os.path.exists(steps_dir):
+        os.makedirs(steps_dir)
+
+    model = replicate.models.get("pixray/api")
+    i = 0
+    for result in model.predict(settings=open("/tmp/pixray/input.yaml", "rb")):
+        last_result = result
+        with requests.get(last_result, stream=True) as r:
+            outfile = f"{steps_dir}/{i}.png"
+            i = i + 1
+            with open(outfile, "wb") as f:
+                for chunk in r.iter_content(chunk_size=16 * 1024):
+                    f.write(chunk)
+
+    if last_result:
+        with requests.get(last_result, stream=True) as r:
+            outfile = f"/tmp/pixray/output.png"
+            with open(outfile, "wb") as f:
+                for chunk in r.iter_content(chunk_size=16 * 1024):
+                    f.write(chunk)
 
 
 def swinir_replicate(id: str):
@@ -831,17 +858,18 @@ def dream(event: v1.Event) -> None:
         )
 
         d_t = Task(
-            "pixray-dreamer",
-            image=pixray_image,
+            "pixray-replicate",
+            pixray_replicate,
+            image=dreamer_image,
             image_pull_policy=ImagePullPolicy.IfNotPresent,
-            command=command,
-            resources=Resources(gpus=1, min_mem="16Gi", min_cpu="2"),
-            tolerations=[GPUToleration],
-            annotations={"multicluster.admiralty.io/elect": ""},
-            node_selectors={"dreamer.nightmarebot.com/pixray": "true"},
+            # resources=Resources(gpus=1, min_mem="16Gi", min_cpu="2"),
+            # tolerations=[GPUToleration],
+            # annotations={"multicluster.admiralty.io/elect": ""},
+            # node_selectors={"dreamer.nightmarebot.com/pixray": "true"},
             env_specs=[
                 EnvSpec(name="NIGHTMAREBOT_MINIO_KEY", value=minio_key),
                 EnvSpec(name="NIGHTMAREBOT_MINIO_SECRET", value=minio_secret),
+                EnvSpec(name="REPLICATE_API_TOKEN", value=replicate_token),
             ],
             input_artifacts=[
                 InputArtifact(
