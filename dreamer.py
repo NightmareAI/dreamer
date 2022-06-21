@@ -1,3 +1,4 @@
+import tempfile
 from unicodedata import name
 from hera import EnvSpec, ImagePullPolicy
 from hera.artifact import InputArtifact, S3Artifact, OutputArtifact
@@ -157,8 +158,15 @@ def swinir_replicate(id: str):
     for result in results:
         url = result["file"]
         with requests.get(url, stream=True) as r:
-            client.put_object(
-                "nightmarebot-output", f"{id}/output.png", r, content_type="image/png"
+            outfile = tempfile.mktemp()
+            with open(outfile, "wb") as f:
+                for chunk in r.iter_content(chunk_size=16 * 1024):
+                    f.write(chunk)
+            client.fput_object(
+                "nightmarebot-output",
+                f"{id}/output.png",
+                outfile,
+                content_type="image/png",
             )
         break
 
