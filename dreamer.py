@@ -146,16 +146,16 @@ def realesrgan_replicate(id: str, scale: int, face_enhance: bool):
     if not os.path.exists("/result"):
         os.makedirs("/result")
     model = replicate.models.get("nightmareai/real-esrgan")
-    for result in model.predict(
+    result = model.predict(
         image=open("/input/lq/input.png", "rb"),
         scale=scale,
         face_enhance=face_enhance,
-    ):
-        with requests.get(result, stream=True) as r:
-            with open("/result/output.png", "wb") as f:
-                for chunk in r.iter_content(chunk_size=16 * 1024):
-                    f.write(chunk)
-            break
+    )
+    print("downloading " + result)
+    with requests.get(result, stream=True) as r:
+        with open("/result/output.png", "wb") as f:
+            for chunk in r.iter_content(chunk_size=16 * 1024):
+                f.write(chunk)
 
 
 def pixray_replicate(id: str):
