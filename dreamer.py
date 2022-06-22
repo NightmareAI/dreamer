@@ -144,7 +144,7 @@ def realesrgan_replicate(id: str, scale: int, face_enhance: bool):
     import os
 
     if not os.path.exists("/results"):
-        os.makedirs("/tmp/results")
+        os.makedirs("/results")
     model = replicate.models.get("nightmareai/real-esrgan")
     result = model.predict(
         image=open("/input/lq/input.png", "rb"),
