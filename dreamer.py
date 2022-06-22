@@ -141,6 +141,7 @@ def pixray_prepare(id: str):
 
 def realesrgan_replicate(id: str, scale: int, face_enhance: bool):
     import replicate, requests
+    import os
 
     if not os.path.exists("/tmp/results"):
         os.makedirs("/tmp/results")
