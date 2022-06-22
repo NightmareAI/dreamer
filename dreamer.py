@@ -143,16 +143,16 @@ def realesrgan_replicate(id: str, scale: int, face_enhance: bool):
     import replicate, requests
     import os
 
-    if not os.path.exists("/tmp/results"):
+    if not os.path.exists("/results"):
         os.makedirs("/tmp/results")
     model = replicate.models.get("nightmareai/real-esrgan")
     result = model.predict(
-        image=open("/tmp/enhance/lq/input.png", "rb"),
+        image=open("/input/lq/input.png", "rb"),
         scale=scale,
         face_enhance=face_enhance,
     )
     with requests.get(result, stream=True) as r:
-        with open("/tmp/results/output.png", "wb") as f:
+        with open("/results/output.png", "wb") as f:
             for chunk in r.iter_content(chunk_size=16 * 1024):
                 f.write(chunk)
 
