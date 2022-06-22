@@ -16,7 +16,7 @@ from dapr.clients import DaprClient
 from dapr.ext.grpc import App
 
 
-publish_image = "ghcr.io/nightmareai/nightmarebot-publish@sha256:5033c11e656bdeebaa1ae19e8d1f8ad63491548e2695908af2b86d2f19bee7fe"
+publish_image = "ghcr.io/nightmareai/nightmarebot-publish@sha256:7c96c7696249fc4cb96d04057f64819ab6bf8451d8ee5d4214572d694ff7cb56"
 majesty_image = "ghcr.io/nightmareai/majesty-diffusion@sha256:fb81446fcc13fa1a048c3d683e38113cae114aa5216218a639c03946b1f88dcb"
 pixray_image = "ghcr.io/nightmareai/pixray@sha256:4789d76512bbe483ef0c50023366f684e8f8775f59bf133f687761d3913e09e0"
 latent_diffusion_image = "ghcr.io/nightmareai/latent-diffusion@sha256:fc529d49066fc2d2764c42a66dd9e68a698cd9f67c76e262740edbfa9f8ca914"
