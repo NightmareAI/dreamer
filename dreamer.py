@@ -139,6 +139,23 @@ def pixray_prepare(id: str):
         yaml.safe_dump(request_settings, outstream)
 
 
+def realesrgan_replicate(id: str, scale: int, face_enhance: bool):
+    import replicate, requests
+
+    if not os.path.exists("/tmp/results"):
+        os.makedirs("/tmp/results")
+    model = replicate.models.get("nightmareai/real-esrgan")
+    result = model.predict(
+        image=open("/tmp/enhance/lq/input.png", "rb"),
+        scale=scale,
+        face_enhance=face_enhance,
+    )
+    with requests.get(result, stream=True) as r:
+        with open("/tmp/results/output.png", "wb") as f:
+            for chunk in r.iter_content(chunk_size=16 * 1024):
+                f.write(chunk)
+
+
 def pixray_replicate(id: str):
     import os, sys
     import replicate, requests
@@ -591,31 +608,6 @@ def enhance(event: v1.Event) -> None:
             output_artifacts=[OutputArtifact(name="input", path="/tmp/enhance")],
         )
 
-        e_t = Task(
-            "swinir-enhance",
-            image=dreamer_image,
-            image_pull_policy=ImagePullPolicy.IfNotPresent,
-            command=command,
-            annotations={"multicluster.admiralty.io/elect": ""},
-            resources=Resources(gpus=1, min_mem="8Gi", min_cpu="2"),
-            tolerations=[GPUToleration],
-            node_selectors={"enhance.nightmarebot.com/swinir": "true"},
-            # node_selectors=gke_k80_gpu,
-            input_artifacts=[
-                InputArtifact(
-                    name="input",
-                    path="/tmp/enhance",
-                    from_task="swinir-prepare",
-                    artifact_name="input",
-                )
-            ],
-            output_artifacts=[
-                OutputArtifact(
-                    name="result", path="/src/results/swinir_real_sr_x4_large/"
-                )
-            ],
-        )
-
         u_t = Task(
             "swinir-upload",
             upload_swinir,
@@ -725,12 +717,13 @@ def esrgan(event: v1.Event) -> None:
             "/result",
         ]
 
+        face_enhance = False
         if data["input"]["face_enhance"]:
-            command.append("--face_enhance")
+            face_enhance = True
 
+        scale = 4
         if data["input"]["outscale"]:
-            command.append("--outscale")
-            command.append(data["input"]["outscale"])
+            scale = data["input"]["outscale"]
 
         p_t = Task(
             "prepare",
@@ -748,13 +741,15 @@ def esrgan(event: v1.Event) -> None:
 
         e_t = Task(
             "enhance",
-            image=esrgan_image,
+            realesrgan_replicate,
+            [{"id": id, "scale": scale, "face_enhance": face_enhance}],
+            image=dreamer_image,
             image_pull_policy=ImagePullPolicy.IfNotPresent,
-            command=command,
-            resources=Resources(gpus=1, min_mem="16Gi", min_cpu="2"),
-            annotations={"multicluster.admiralty.io/elect": ""},
-            tolerations=[GPUToleration],
-            node_selectors={"enhance.nightmarebot.com/esrgan": "true"},
+            #            command=command,
+            #            resources=Resources(gpus=1, min_mem="16Gi", min_cpu="2"),
+            #            annotations={"multicluster.admiralty.io/elect": ""},
+            #            tolerations=[GPUToleration],
+            #            node_selectors={"enhance.nightmarebot.com/esrgan": "true"},
             # node_selectors=gke_k80_gpu,
             input_artifacts=[
                 InputArtifact(
