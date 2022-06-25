@@ -240,9 +240,9 @@ def latent_replicate(id: str):
         scale=input["scale"],
         plms=input["plms"],
     )
+    i = 0
     for result in results:
         url = result
-        i = 0
         with requests.get(
             url,
             stream=True,
