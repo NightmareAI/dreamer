@@ -16,7 +16,7 @@ from dapr.clients import DaprClient
 from dapr.ext.grpc import App
 
 
-publish_image = "ghcr.io/nightmareai/nightmarebot-publish@sha256:7c96c7696249fc4cb96d04057f64819ab6bf8451d8ee5d4214572d694ff7cb56"
+publish_image = "ghcr.io/nightmareai/nightmarebot-publish@sha256:2159ed6bf8886efcbe1583d6c41bc7e1dd65cbafa9239482636854a290d9ef15"
 majesty_image = "ghcr.io/nightmareai/majesty-diffusion@sha256:fb81446fcc13fa1a048c3d683e38113cae114aa5216218a639c03946b1f88dcb"
 pixray_image = "ghcr.io/nightmareai/pixray@sha256:4789d76512bbe483ef0c50023366f684e8f8775f59bf133f687761d3913e09e0"
 latent_diffusion_image = "ghcr.io/nightmareai/latent-diffusion@sha256:fc529d49066fc2d2764c42a66dd9e68a698cd9f67c76e262740edbfa9f8ca914"
@@ -217,6 +217,37 @@ def swinir_replicate(id: str):
                 content_type="image/png",
             )
         break
+
+
+def latent_replicate(id: str):
+    import os, sys
+    import replicate, requests
+    import json
+
+    model = replicate.models.get("nightmareai/latent-diffusion")
+    input = json.load(open("/result/input.json"))
+    if not os.path.exists("/result/samples"):
+        os.makedirs("/result/samples")
+
+    results = model.predict(
+        prompt=input["prompt"],
+        steps=input["ddim_steps"],
+        batch_size=input["n_samples"],
+        batches=input["n_iter"],
+        width=input["width"],
+        height=input["height"],
+        scale=input["scale"],
+        plms=input["plms"],
+    )
+    for result in results:
+        url = result
+        i = 0
+        with requests.get(url, stream=True) as r:
+            outfile = "/result/samples/{i}.png"
+            with open(outfile, "wb") as f:
+                for chunk in r.iter_content(chunk_size=16 * 1024):
+                    f.write(chunk)
+            i = i + 1
 
 
 def enhance_prepare(id: str):
@@ -487,13 +518,14 @@ def latentDiffusion(event: v1.Event) -> None:
 
         d_t = Task(
             "dream",
-            image=latent_diffusion_image,
+            latent_replicate,
+            [{"id": id}],
+            image=dreamer_image,
             image_pull_policy=ImagePullPolicy.IfNotPresent,
-            command=command,
-            annotations={"multicluster.admiralty.io/elect": ""},
-            resources=Resources(gpus=1, min_mem="16Gi", min_cpu="2"),
-            tolerations=[GPUToleration],
-            node_selectors={"dreamer.nightmarebot.com/latent": "true"},
+            # annotations={"multicluster.admiralty.io/elect": ""},
+            # resources=Resources(gpus=1, min_mem="16Gi", min_cpu="2"),
+            # tolerations=[GPUToleration],
+            # node_selectors={"dreamer.nightmarebot.com/latent": "true"},
             # node_selectors=gke_t4_gpu,
             input_artifacts=[
                 InputArtifact(
