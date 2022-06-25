@@ -232,8 +232,9 @@ def latent_replicate(id: str):
     results = model.predict(
         prompt=input["prompt"],
         steps=input["ddim_steps"],
-        batch_size=input["n_samples"],
-        batches=input["n_iter"],
+        n_samples=input["n_samples"],
+        n_iter=input["n_iter"],
+        eta=input["ddim_eta"],
         width=input["width"],
         height=input["height"],
         scale=input["scale"],
@@ -251,7 +252,7 @@ def latent_replicate(id: str):
             with open(outfile, "wb") as f:
                 for chunk in r.iter_content(chunk_size=16 * 1024):
                     f.write(chunk)
-            i = i + 1
+        i = i + 1
 
 
 def enhance_prepare(id: str):
