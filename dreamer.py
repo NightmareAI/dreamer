@@ -536,6 +536,7 @@ def latentDiffusion(event: v1.Event) -> None:
                 )
             ],
             output_artifacts=[OutputArtifact(name="result", path="/result")],
+            env_specs=[EnvSpec(name="REPLICATE_API_TOKEN", value=replicate_token)],
         )
 
         u_t = Task(
