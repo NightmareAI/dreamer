@@ -242,7 +242,11 @@ def latent_replicate(id: str):
     for result in results:
         url = result
         i = 0
-        with requests.get(url, stream=True) as r:
+        with requests.get(
+            url,
+            stream=True,
+            headers={"Authorization": f'Token {os.getenv("REPLICATE_API_TOKEN")}'},
+        ) as r:
             outfile = f"/result/samples/{i}.png"
             with open(outfile, "wb") as f:
                 for chunk in r.iter_content(chunk_size=16 * 1024):
