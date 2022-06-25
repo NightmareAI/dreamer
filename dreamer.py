@@ -243,7 +243,7 @@ def latent_replicate(id: str):
         url = result
         i = 0
         with requests.get(url, stream=True) as r:
-            outfile = "/result/samples/{i}.png"
+            outfile = f"/result/samples/{i}.png"
             with open(outfile, "wb") as f:
                 for chunk in r.iter_content(chunk_size=16 * 1024):
                     f.write(chunk)
